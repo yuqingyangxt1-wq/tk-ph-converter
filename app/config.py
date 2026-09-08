@@ -73,7 +73,13 @@ def default_config() -> dict[str, Any]:
             "output_copies": 2,
             # Description
             "description_enabled": True,
-            "description_value": "",
+            "description_value": (
+                "High-quality product with careful packaging. "
+                "Material: premium fabric, soft and comfortable, breathable for daily wear. "
+                "Care: machine washable, retains shape after washing. "
+                "Size: please refer to the size chart image before ordering. "
+                "Shipping: orders ship within 1-2 business days; delivery typically takes 3-8 days."
+            ),
             # Size chart URL
             "size_chart_enabled": True,
             "size_chart_value": "",
