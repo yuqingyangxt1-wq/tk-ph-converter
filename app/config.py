@@ -9,6 +9,7 @@ from typing import Any
 
 
 APP_NAME = "TK菲律宾表格转化工具"
+__version__ = "2.0.0"
 
 
 def get_app_dir() -> Path:
