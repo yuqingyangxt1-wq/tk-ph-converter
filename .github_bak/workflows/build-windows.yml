@@ -1,0 +1,80 @@
+name: build-windows
+
+# Build the TK Philippines table converter into a single Windows .exe
+# using a GitHub-hosted Windows runner. No Windows machine needed locally.
+
+on:
+  # Build on every push to main (artifact downloadable from the run page)
+  push:
+    branches: [main, master]
+  # Also let you trigger a build manually from the Actions tab
+  workflow_dispatch:
+  # Build on version tags and attach the .exe to a GitHub Release
+  tags:
+    - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm "TK菲律宾表格转化工具.spec"
+
+      - name: Copy assets next to the exe
+        shell: cmd
+        run: |
+          if not exist "dist\assets" mkdir "dist\assets"
+          copy /Y "assets\batch-product-source.xlsx" "dist\assets\"
+
+      - name: Zip the release
+        shell: pwsh
+        run: |
+          $name = "TK菲律宾表格转化工具_windows"
+          Compress-Archive -Path "dist\*" -DestinationPath "$name.zip" -Force
+          Get-ChildItem dist, *.zip | Select-Object Name, Length
+
+      - name: Upload build artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TK菲律宾表格转化工具-windows
+          path: |
+            dist/TK菲律宾表格转化工具.exe
+            dist/assets/batch-product-source.xlsx
+            TK菲律宾表格转化工具_windows.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/TK菲律宾表格转化工具.exe
+            dist/assets/batch-product-source.xlsx
+            TK菲律宾表格转化工具_windows.zip
+          fail_on_unmatched_files: true

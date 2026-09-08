@@ -1,0 +1,2 @@
+openpyxl>=3.1
+# tkinter ships with the standard CPython installer on Windows
