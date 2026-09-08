@@ -8,3 +8,6 @@ venv/
 .venv/
 .env
 *.log
+config.json
+images/
+产品池/

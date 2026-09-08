@@ -9,7 +9,7 @@ from typing import Any
 
 
 APP_NAME = "TK菲律宾表格转化工具"
-__version__ = "3.2.1"  # v3.2.1 hotfix: add `log=` to convert_source/add_to_pool
+__version__ = "3.2.2"  # v3.2.2: Settings-tab fields now auto-save; output_copies added to Convert panel
 
 
 def get_app_dir() -> Path:

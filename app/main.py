@@ -276,35 +276,47 @@ class ConvertSettingsPanel(tk.Frame):
             bg="#ffffff", fg="#222", font=("", 10, "bold"),
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
-        # Each setting row. We store (key_value, key_enabled, label, hint)
+        # Each setting row. We store
+        #   (key_value, key_enabled_or_None, label, hint, kind)
         # so the auto-save layer can map back to the canonical settings dict.
-        row_defs: list[tuple[str, str, str, str]] = [
-            ("title_prefix",       "title_prefix_enabled",          "标题前缀",       "启用后去随机后缀并截断至 245 字符"),
-            ("brand_value",        "brand_enabled",                 "brand",          "启用后写入到 brand 列"),
-            ("price_value",        "price_enabled",                 "price",          "启用后覆盖每行 price"),
-            ("quantity_value",     "quantity_enabled",              "quantity",       "启用后覆盖每行 quantity"),
-            ("cod_value",          "cod_enabled",                   "cod",            "启用后写入到 cod 列（Y/N）"),
-            ("title_random",       "title_random_suffix_enabled",   "标题随机后缀",    "启用 + 截断至 N 位小写后缀，同一本尺码禁用相同后缀"),
-            ("split_output_files", "split_output_files",            "拆分文件",        "勾选后，每份输出一个独立 xlsx"),
-            ("size_chart_value",   "size_chart_enabled",            "size chart",     "留空用内置默认尺码图 URL"),
+        # kind ∈ {"text", "int"} — selects the widget type for value rows.
+        # enabled_key=None means "no checkbox; this row is always-active".
+        row_defs: list[tuple[str, str | None, str, str, str]] = [
+            ("title_prefix",       "title_prefix_enabled",          "标题前缀",       "启用后去随机后缀并截断至 245 字符", "text"),
+            ("brand_value",        "brand_enabled",                 "brand",          "启用后写入到 brand 列", "text"),
+            ("price_value",        "price_enabled",                 "price",          "启用后覆盖每行 price", "int"),
+            ("quantity_value",     "quantity_enabled",              "quantity",       "启用后覆盖每行 quantity", "int"),
+            ("cod_value",          "cod_enabled",                   "cod",            "启用后写入到 cod 列（Y/N）", "text"),
+            ("title_random",       "title_random_suffix_enabled",   "标题随机后缀",    "启用 + 截断至 N 位小写后缀，同一本尺码禁用相同后缀", "text"),
+            ("split_output_files", "split_output_files",            "拆分文件",        "勾选后，每份输出一个独立 xlsx", "text"),
+            ("output_copies",      None,                            "每产品输出份数",  "≥2 时启用防查重；<2 即只生成 1 个", "int"),
+            ("size_chart_value",   "size_chart_enabled",            "size chart",     "留空用内置默认尺码图 URL", "text"),
         ]
 
         # We keep direct handles to each entry's ttk.Entry widget so that
         # future state-toggle code doesn't have to traverse the tree.
         self._entries: dict[str, ttk.Entry] = {}
 
-        for i, (key, enabled_key, label, hint) in enumerate(row_defs):
+        for i, (key, enabled_key, label, hint, kind) in enumerate(row_defs):
             r = i + 1
 
-            # Checkbox
-            ck_var = tk.BooleanVar(value=bool(self._settings.get(enabled_key, False)))
-            self._checks[enabled_key] = ck_var
-            ck = tk.Checkbutton(
-                body, variable=ck_var, bg="#ffffff", bd=0, highlightthickness=0,
-                activebackground="#ffffff",
-                command=lambda k=enabled_key: self._on_check_change(k),
-            )
-            ck.grid(row=r, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+            if enabled_key is None:
+                # Value-only row (no enable/disable checkbox).
+                placeholder = tk.Label(  # noqa: F841 — keep grid column width
+                    body, text=" ", bg="#ffffff", bd=0,
+                )
+                placeholder.grid(row=r, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+                ck = placeholder
+            else:
+                # Checkbox
+                ck_var = tk.BooleanVar(value=bool(self._settings.get(enabled_key, False)))
+                self._checks[enabled_key] = ck_var
+                ck = tk.Checkbutton(
+                    body, variable=ck_var, bg="#ffffff", bd=0, highlightthickness=0,
+                    activebackground="#ffffff",
+                    command=lambda k=enabled_key: self._on_check_change(k),
+                )
+                ck.grid(row=r, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
 
             # Label
             lbl = tk.Label(
@@ -319,10 +331,15 @@ class ConvertSettingsPanel(tk.Frame):
                 val = str(val)
             v = tk.StringVar(value=str(val))
             self._vars[key] = v
-            entry = ttk.Entry(body, textvariable=v, width=40)
+            if kind == "int":
+                entry = ttk.Spinbox(
+                    body, textvariable=v, from_=1, to=99, width=10,
+                )
+            else:
+                entry = ttk.Entry(body, textvariable=v, width=40)
             entry.grid(row=r, column=2, sticky="ew", pady=(6, 0))
             self._entries[key] = entry
-            v.trace_add("write", lambda *_: self._on_text_change(key))
+            v.trace_add("write", lambda *_, k=key: self._on_text_change(k))
 
             # Hint row (under the field, only shown when enabled)
             hint_lbl = tk.Label(
@@ -331,7 +348,8 @@ class ConvertSettingsPanel(tk.Frame):
             hint_lbl.grid(row=r, column=2, sticky="w", padx=(0, 0), pady=(34, 0))
 
             body.columnconfigure(2, weight=1)
-            self._apply_visual_state(enabled_key, ck_var.get())
+            if enabled_key is not None:
+                self._apply_visual_state(enabled_key, self._checks[enabled_key].get())
 
         # Run button row
         btn_row = tk.Frame(self, bg="#ffffff")
@@ -354,18 +372,21 @@ class ConvertSettingsPanel(tk.Frame):
 
     def collect(self) -> dict[str, Any]:
         """Return updated settings to be merged back into config."""
-        # Return only the actually-checked fields, leaving the rest untouched.
+        # Return both the enabled-flag changes AND the value rows (always
+        # include value-only rows like output_copies — those have no
+        # checkbox but the user can still edit them inline).
         out: dict[str, Any] = {}
         for enabled_key, var in self._checks.items():
             out[enabled_key] = bool(var.get())
         for key, var in self._vars.items():
             val = var.get()
-            # Coerce numeric settings.
+            # Coerce numeric settings. output_copies lives in the compact
+            # panel as a value-only row, so it's always written through.
             if key in ("price_value", "quantity_value", "random_suffix_length", "output_copies"):
                 try:
-                    val = int(float(val))
+                    val = max(1, int(float(val)))
                 except (TypeError, ValueError):
-                    pass
+                    val = 1
             out[key] = val
         return out
 
@@ -605,10 +626,14 @@ class App(tk.Tk):
                 txt.insert("1.0", str(s.get(key, "")))
                 txt.pack(side="left", fill="x", expand=True)
                 self.set_vars[key] = txt
+                # Text widgets don't expose trace; bind focusout + key release.
+                txt.bind("<FocusOut>", lambda _e: self._auto_save_full_settings())
+                txt.bind("<KeyRelease>", lambda _e: self._auto_save_full_settings())
             else:
                 v = tk.StringVar(value=str(s.get(key, "")))
                 self.set_vars[key] = v
                 ttk.Entry(row, textvariable=v, width=60).pack(side="left", fill="x", expand=True)
+                v.trace_add("write", lambda *_: self._auto_save_full_settings())
 
         def add_int(key, label):
             row = tk.Frame(inner, bg="#ffffff"); row.pack(fill="x", pady=2)
@@ -616,12 +641,16 @@ class App(tk.Tk):
             v = tk.IntVar(value=int(s.get(key, 0) or 0))
             self.set_vars[key] = v
             ttk.Spinbox(row, textvariable=v, from_=0, to=99999, width=10).pack(side="left")
+            v.trace_add("write", lambda *_: self._auto_save_full_settings())
 
         def add_check(key, label):
             v = tk.BooleanVar(value=bool(s.get(key, False)))
             self.set_checks[key] = v
             tk.Checkbutton(inner, text=label, variable=v, bg="#ffffff",
-                           activebackground="#ffffff").pack(anchor="w", padx=4, pady=1)
+                           activebackground="#ffffff",
+                           command=self._auto_save_full_settings).pack(
+                anchor="w", padx=4, pady=1,
+            )
 
         add_section("标题与副本")
         add_check("title_prefix_enabled", "启用标题前缀")
@@ -668,6 +697,7 @@ class App(tk.Tk):
             v = tk.StringVar(value=str(default_col or ""))
             self.colmap_vars[field_name] = v
             ttk.Entry(row, textvariable=v, width=40).pack(side="left", fill="x", expand=True)
+            v.trace_add("write", lambda *_: self._auto_save_full_settings())
 
         ttk.Button(inner, text="保存设置", command=self._save_full_settings).pack(anchor="e", pady=12)
 
@@ -926,7 +956,13 @@ class App(tk.Tk):
 
     # ----- Settings save --------------------------------------------------
 
-    def _save_full_settings(self):
+    def _save_full_settings(self, silent: bool = False):
+        """Save every Settings-tab field back into ``self.cfg`` and to disk.
+
+        ``silent=True`` is the auto-save path used by per-widget trace_add
+        callbacks; suppress the success dialog and any error noise so we
+        don't ruin the user's flow with popups for every keystroke.
+        """
         s = self.cfg.setdefault("product_xlsx_settings", {})
         for k, v in self.set_vars.items():
             if isinstance(v, tk.Text):
@@ -938,10 +974,25 @@ class App(tk.Tk):
                     s[k] = ""
         for k, v in self.set_checks.items():
             s[k] = bool(v.get())
-        cm = {k: v.get() for k, v in self.colmap_vars.items()}
-        self.cfg["source_column_mapping"] = cm
-        save_config(self.cfg)
-        messagebox.showinfo("已保存", "设置已写入 config.json。")
+        if hasattr(self, "colmap_vars"):
+            self.cfg["source_column_mapping"] = {
+                k: v.get() for k, v in self.colmap_vars.items()
+            }
+        try:
+            save_config(self.cfg)
+        except OSError as e:
+            if not silent:
+                messagebox.showerror("保存失败", f"写入 config.json 失败：\n{e}")
+            raise
+        if not silent:
+            messagebox.showinfo("已保存", "设置已写入 config.json。")
+
+    def _auto_save_full_settings(self):
+        """Silent version: used by trace_add callbacks on Settings-tab fields."""
+        try:
+            self._save_full_settings(silent=True)
+        except OSError:
+            pass  # already warned by the explicit save path
 
     # ----- Pool list ------------------------------------------------------
 
