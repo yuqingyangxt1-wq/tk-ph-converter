@@ -685,9 +685,6 @@ class App(tk.Tk):
         add_int("parcel_length_value", "长 (cm)：")
         add_int("parcel_width_value", "宽 (cm)：")
         add_int("parcel_height_value", "高 (cm)：")
-        add_section("TikTok 特定")
-        add_int("pre_order_time_value", "pre_order_time（天）：")
-        add_str("delivery_value", "delivery（发货方式）：")
         add_section("源表列名映射（按需调整）")
         self.colmap_vars = {}
         mapping = self.cfg.get("source_column_mapping") or default_config()["source_column_mapping"]

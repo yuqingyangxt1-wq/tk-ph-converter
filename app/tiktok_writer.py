@@ -58,7 +58,6 @@ TIKTOK_COLUMNS: list[str] = [
     "parcel_height",
     "delivery",
     "price",
-    "pre_order_time",
     "quantity",
     "seller_sku",
     "size_chart",
@@ -221,7 +220,6 @@ def _resolve_common_fields(
         "quantity": quantity,
         "price_override": price,
         "delivery": _clean_str(settings.get("delivery_value", "")),
-        "pre_order_time": settings.get("pre_order_time_value", ""),
     }
 
 
@@ -310,7 +308,6 @@ def _build_row_for_variant(
     row["parcel_height"] = _to_number(common["height"])
     row["delivery"] = common["delivery"]
     row["price"] = price_value
-    row["pre_order_time"] = common["pre_order_time"]
     row["quantity"] = quantity_value
     row["seller_sku"] = seller_sku
     row["size_chart"] = common["size_chart"]
@@ -380,8 +377,16 @@ def write_tiktok_xlsx(
         raise ValueError(f"模板文件缺少 'Template' sheet：{template_src}")
     ws = wb["Template"]
 
-    # Build header→col index from the first row of the Template sheet
+    # v3.2.3: pre_order_time is currently disabled (no pre-order workflow).
+    # If it still appears in the template header, drop the column from the
+    # output xlsx entirely so it doesn't show up as a blank header.
     header_row = [(_clean_str(c.value) or "") for c in ws[1]]
+    if "pre_order_time" in header_row:
+        _col = header_row.index("pre_order_time") + 1
+        ws.delete_cols(_col, 1)
+        header_row = [(_clean_str(c.value) or "") for c in ws[1]]
+
+    # Build header→col index from the first row of the Template sheet
     col_idx: dict[str, int] = {}
     for i, h in enumerate(header_row, 1):
         if h in TIKTOK_COLUMNS:

@@ -9,7 +9,7 @@ from typing import Any
 
 
 APP_NAME = "TK菲律宾表格转化工具"
-__version__ = "3.2.2"  # v3.2.2: Settings-tab fields now auto-save; output_copies added to Convert panel
+__version__ = "3.2.3"  # v3.2.3: pre_order_time column dropped; blank default
 
 
 def get_app_dir() -> Path:
@@ -103,7 +103,7 @@ def default_config() -> dict[str, Any]:
             "parcel_width_value": 10,
             "parcel_height_value": 5,
             # TikTok-specific
-            "pre_order_time_value": 3,   # days handling time
+            "pre_order_time_value": "",  # blank = no pre-order
             "delivery_value": "",         # leave blank → user fills
         },
         # Source column mapping (override which EasyBoss/源列 maps to what)
