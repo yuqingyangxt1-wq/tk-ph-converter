@@ -67,9 +67,12 @@ def generate_copy_suffixes(copies: int, length: int) -> list[str]:
 
 @dataclass
 class ConvertResult:
-    output_path: Path
+    output_path: Path                             # primary (first) file
     product_count: int
     row_count: int
+    # When split_output_files=True, more than one xlsx is produced.
+    # output_paths holds them in generation order; output_path == output_paths[0].
+    output_paths: list[Path] = field(default_factory=list)
     image_dir: Path | None = None
     image_manifest: Path | None = None
     image_download_count: int = 0
@@ -183,14 +186,20 @@ def convert_source(
 ) -> ConvertResult:
     """Read source, apply settings, write TikTok batch upload xlsx.
 
-    Output filename: <source-stem>_TKPH_<timestamp>.xlsx in `output_dir`.
-
     ROW STRATEGY: each (color, size) variant in the source becomes one row.
-    `output_copies` duplicates each variant N times with random title
-    suffixes to avoid TikTok's duplicate-listing detection (防查重).
 
-    If `download_imgs=True` (default), every remote image referenced in the
-    source is downloaded to `<output_dir>/images/` and a manifest is
+    Two output modes for the per-product copy count (``output_copies``):
+        - ``split_output_files=False`` (default): all copies go into a single
+          xlsx file. Each variant is duplicated ``output_copies`` times with
+          random title suffixes (防查重). Output filename:
+          ``<stem>_TKPH_<ts>.xlsx``.
+        - ``split_output_files=True``: each copy is its own xlsx file. All
+          products appear in every file, but each file carries one global
+          random suffix so listings from different files look distinct.
+          Filenames: ``<stem>_TKPH_<ts>_copy01.xlsx``, ``_copy02.xlsx``, …
+
+    If ``download_imgs=True`` (default), every remote image referenced in the
+    source is downloaded to ``<output_dir>/images/`` and a manifest is
     written next to the output xlsx for the user to re-host via TikTok
     Media Center (Shopee cf.shopee.ph URLs expire and won't load from
     TikTok).
@@ -204,29 +213,70 @@ def convert_source(
     copies = max(1, int(settings.get("output_copies", 1) or 1))
     use_suffix = bool(settings.get("title_random_suffix_enabled", False))
     suffix_len = int(settings.get("random_suffix_length", 10) or 10)
+    split_files = bool(settings.get("split_output_files", False))
 
     if progress:
         progress(0.25, f"已识别 {len(products)} 个产品（{sum(len(p.variants) for p in products)} 个变体），正在生成行…")
-    rows: list[dict[str, Any]] = []
-    total = len(products)
-    for i, p in enumerate(products, 1):
-        if use_suffix and copies > 1:
-            suffixes = generate_copy_suffixes(copies, suffix_len)
-        else:
-            suffixes = [""] * copies
-        rows.extend(build_rows_for_product(p, settings, copy_suffixes=suffixes))
-        if progress and total:
-            progress(0.25 + 0.5 * (i / total), f"已处理 {i}/{total} 个产品…")
-        # Tiny yield so the UI thread can repaint
-        if i % 10 == 0:
-            time.sleep(0)
-
-    if progress:
-        progress(0.8, "正在写入 TikTok 模板…")
     output_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
-    out_path = output_dir / f"{source_xlsx.stem}_TKPH_{ts}.xlsx"
-    write_tiktok_xlsx(out_path, rows, template_src)
+    stem = source_xlsx.stem
+
+    # Pre-generate per-product copy suffixes (used in both modes).
+    if use_suffix and copies > 1:
+        all_suffixes = generate_copy_suffixes(copies, suffix_len)
+    else:
+        all_suffixes = [""] * copies
+
+    output_paths: list[Path] = []
+    total_rows = 0
+
+    if split_files:
+        # Each copy is a separate file. Within a single file, every product
+        # uses the same global suffix (the index-0 slot), so each file looks
+        # like a normal "1 copy" batch but with a fingerprint that makes
+        # cross-file duplicates unmistakable.
+        if progress:
+            progress(0.6, "正在写入 TikTok 模板（拆分文件模式）…")
+        for c_idx in range(copies):
+            file_suffix = all_suffixes[c_idx] if c_idx < len(all_suffixes) else ""
+            file_rows: list[dict[str, Any]] = []
+            for p in products:
+                # Each variant → exactly one row in this file, with the
+                # file-wide suffix applied to EVERY variant row (so the whole
+                # file carries a unified fingerprint, not just rows > 0).
+                file_rows.extend(
+                    build_rows_for_product(
+                        p, settings,
+                        copy_suffixes=[file_suffix],
+                        apply_suffix_to_first=True,
+                    )
+                )
+            tag = f"copy{c_idx + 1:02d}of{copies:02d}" if copies > 1 else "copy01of01"
+            out_path = output_dir / f"{stem}_TKPH_{ts}_{tag}.xlsx"
+            write_tiktok_xlsx(out_path, file_rows, template_src)
+            output_paths.append(out_path)
+            total_rows += len(file_rows)
+            if progress:
+                progress(0.6 + 0.2 * ((c_idx + 1) / copies),
+                         f"已写入 {c_idx + 1}/{copies} 个文件…")
+    else:
+        # Single-file mode: all copies become in-file duplicates.
+        if progress:
+            progress(0.6, "正在写入 TikTok 模板…")
+        rows: list[dict[str, Any]] = []
+        total = len(products)
+        for i, p in enumerate(products, 1):
+            rows.extend(
+                build_rows_for_product(p, settings, copy_suffixes=all_suffixes)
+            )
+            if progress and total:
+                progress(0.6 + 0.2 * ((i + 1) / total), f"已处理 {i}/{total} 个产品…")
+            if i % 10 == 0:
+                time.sleep(0)
+        out_path = output_dir / f"{stem}_TKPH_{ts}.xlsx"
+        write_tiktok_xlsx(out_path, rows, template_src)
+        output_paths.append(out_path)
+        total_rows = len(rows)
 
     image_dir = image_manifest = None
     img_count = 0
@@ -237,7 +287,13 @@ def convert_source(
         )
 
     if progress:
-        msg = f"完成。共 {len(products)} 个产品 / {len(rows)} 行 → {out_path.name}"
+        if len(output_paths) == 1:
+            msg = (f"完成。共 {len(products)} 个产品 / {total_rows} 行 → "
+                   f"{output_paths[0].name}")
+        else:
+            msg = (f"完成。共 {len(products)} 个产品 / {total_rows} 行，"
+                   f"拆分为 {len(output_paths)} 个文件 → "
+                   f"{output_paths[0].name} 等")
         if img_count or img_failed:
             msg += f"  (图片: {img_count} 成功"
             if img_failed:
@@ -245,9 +301,10 @@ def convert_source(
             msg += ")"
         progress(1.0, msg)
     return ConvertResult(
-        output_path=out_path,
+        output_path=output_paths[0],
+        output_paths=output_paths,
         product_count=len(products),
-        row_count=len(rows),
+        row_count=total_rows,
         image_dir=image_dir,
         image_manifest=image_manifest,
         image_download_count=img_count,

@@ -232,11 +232,25 @@ def _build_row_for_variant(
     common: dict[str, Any],
     copy_idx: int = 0,
     copy_suffix: str = "",
+    apply_suffix_to_first: bool = False,
 ) -> OutputRow:
-    """Build a single TikTok row for one (variant, copy) combination."""
+    """Build a single TikTok row for one (variant, copy) combination.
+
+    ``apply_suffix_to_first=False`` (default) keeps a clean first copy (no
+    suffix appended to the title or seller_sku when ``copy_idx`` is 0)
+    — this matches the original "first copy is the canonical one"
+    convention used for in-file duplicates.
+
+    ``apply_suffix_to_first=True`` forces the suffix onto every row, which
+    is the right behaviour for the split-output mode where each file is
+    its own batch and should carry the file-wide fingerprint on every
+    variant row.
+    """
+    use_suffix = (copy_idx > 0) or apply_suffix_to_first
+
     # Title
     title_prefix = settings["title_prefix"] if settings.get("title_prefix_enabled") else ""
-    suffix = copy_suffix if copy_idx > 0 else ""
+    suffix = copy_suffix if use_suffix else ""
     title = f"{title_prefix}{product.product_name}{suffix}".strip()
 
     # Variant-level values
@@ -270,7 +284,7 @@ def _build_row_for_variant(
 
     # Seller SKU: use full platform_sku (unique per variant)
     base_sku = _clean_str(variant.platform_sku) or product.master_sku()
-    seller_sku = base_sku + copy_suffix if copy_suffix and copy_idx > 0 else base_sku
+    seller_sku = base_sku + copy_suffix if copy_suffix and use_suffix else base_sku
 
     row: OutputRow = {col: "" for col in TIKTOK_COLUMNS}
     row["category"] = common["category"]
@@ -308,29 +322,37 @@ def build_rows_for_product(
     product: Product,
     settings: dict[str, Any],
     copy_suffixes: list[str] | None = None,
+    apply_suffix_to_first: bool = False,
 ) -> list[OutputRow]:
     """Build all TikTok rows for one Product.
 
-    Each variant becomes one row; if `output_copies` > 1, each variant is
-    duplicated `output_copies` times (防查重). Random suffixes are passed in
-    via `copy_suffixes` (length = output_copies). The first copy uses an
-    empty suffix.
+    Each variant becomes one row; if ``copy_suffixes`` has N entries, each
+    variant is duplicated N times — once per suffix. The first suffix
+    typically corresponds to copy index 0 (the "no suffix" canonical copy).
+
+    Pass an explicit ``copy_suffixes`` of any length to control duplication;
+    the per-product ``output_copies`` setting is only used as a fallback
+    when ``copy_suffixes`` is None.
+
+    ``apply_suffix_to_first`` defaults to False (i.e. the first copy has a
+    clean title and seller_sku). Set True for split-file mode where the
+    whole file should carry a single random fingerprint.
     """
-    copies = max(1, int(settings.get("output_copies", 1) or 1))
     if copy_suffixes is None:
+        copies = max(1, int(settings.get("output_copies", 1) or 1))
         copy_suffixes = [""] * copies
-    elif len(copy_suffixes) < copies:
-        copy_suffixes = (copy_suffixes + [""] * copies)[: copies]
+    else:
+        copies = len(copy_suffixes) if copy_suffixes else 1
 
     common = _resolve_common_fields(product, settings)
     rows: list[OutputRow] = []
 
     if not product.variants:
-        # Edge case: product with no variants → one row, no variation values
         for c_idx in range(copies):
             rows.append(_build_row_for_variant(
                 product, Variant(), settings, common,
                 copy_idx=c_idx, copy_suffix=copy_suffixes[c_idx],
+                apply_suffix_to_first=apply_suffix_to_first,
             ))
         return rows
 
@@ -339,6 +361,7 @@ def build_rows_for_product(
             rows.append(_build_row_for_variant(
                 product, v, settings, common,
                 copy_idx=c_idx, copy_suffix=copy_suffixes[c_idx],
+                apply_suffix_to_first=apply_suffix_to_first,
             ))
     return rows
 

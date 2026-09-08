@@ -1,2 +1,6 @@
 openpyxl>=3.1
 # tkinter ships with the standard CPython installer on Windows
+# tkinterdnd2 is optional — enables true drag-and-drop of xlsx files into
+# the source-xlsx zone. If installation fails the GUI silently falls
+# back to "click the zone to pick a file".
+tkinterdnd2>=0.4.2

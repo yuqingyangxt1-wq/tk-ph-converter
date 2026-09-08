@@ -32,6 +32,10 @@ a = Analysis(
         "app.converter",
         "app.product_pool",
         "app.tiktok_writer",
+        # Optional drag-and-drop library. The GUI imports it lazily
+        # inside a try/except, so if it's missing at runtime the exe
+        # still works (just no DnD).
+        "tkinterdnd2",
     ],
     hookspath=[],
     hooksconfig={},

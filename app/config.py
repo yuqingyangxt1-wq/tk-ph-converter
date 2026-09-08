@@ -9,7 +9,7 @@ from typing import Any
 
 
 APP_NAME = "TK菲律宾表格转化工具"
-__version__ = "3.1.0"  # v3.1 adds default size chart URL
+__version__ = "3.2.0"  # v3.2 adds split_output_files mode
 
 
 def get_app_dir() -> Path:
@@ -69,8 +69,13 @@ def default_config() -> dict[str, Any]:
             # Category
             "category_enabled": True,
             "category_value": "Men's Tops/T-shirts",
-            # Output copies per product (duplicate listings)
+            # Output copies per product (防查重 / 同款多 listing)
             "output_copies": 2,
+            # When False (default), output_copies is realized as N in-file
+            # duplicate rows per variant. When True, the tool emits N separate
+            # xlsx files; each file contains every product and uses a unique
+            # random suffix on title + seller_sku.
+            "split_output_files": False,
             # Description
             "description_enabled": True,
             "description_value": (
