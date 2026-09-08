@@ -20,6 +20,7 @@ from typing import Any, Callable
 import openpyxl
 
 from .source_reader import Product, read_source
+from .converter import LogFn
 
 
 ProgressFn = Callable[[float, str], None]
@@ -169,16 +170,21 @@ def add_to_pool(
     pool_name: str,
     source_xlsx: Path,
     progress: ProgressFn | None = None,
+    log: LogFn | None = None,
     column_mapping: dict[str, str] | None = None,
     site: str = "PH",
 ) -> PoolInfo:
     """入池: read source xlsx, group into Products, append to the named pool xlsx."""
+    if log:
+        log(f"[pool] 入池「{pool_name}」←{source_xlsx.name}")
     _ensure_pool_dir(pool_dir)
     products = read_source(source_xlsx, column_mapping=column_mapping)
     if not products:
         raise ValueError("源表格中没有可识别的产品数据。")
     if progress:
         progress(0.2, f"已识别 {len(products)} 个产品，准备入池…")
+    if log:
+        log(f"[pool] 识别到 {len(products)} 个产品")
 
     fname = _safe_filename(pool_name)
     pool_path = pool_dir / fname

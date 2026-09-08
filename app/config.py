@@ -9,7 +9,7 @@ from typing import Any
 
 
 APP_NAME = "TK菲律宾表格转化工具"
-__version__ = "3.2.0"  # v3.2 adds split_output_files mode
+__version__ = "3.2.1"  # v3.2.1 hotfix: add `log=` to convert_source/add_to_pool
 
 
 def get_app_dir() -> Path:

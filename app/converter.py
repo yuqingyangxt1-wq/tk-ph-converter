@@ -25,6 +25,7 @@ from .tiktok_writer import build_rows_for_product, write_tiktok_xlsx
 
 
 ProgressFn = Callable[[float, str], None]   # (0.0..1.0, status_text)
+LogFn = Callable[[str], None]             # free-form status line
 
 
 def generate_random_suffix(length: int = 3, lowercase: bool = False) -> str:
@@ -181,6 +182,7 @@ def convert_source(
     settings: dict[str, Any],
     template_src: Path,
     progress: ProgressFn | None = None,
+    log: LogFn | None = None,
     column_mapping: dict[str, str] | None = None,
     download_imgs: bool = True,
 ) -> ConvertResult:
@@ -204,6 +206,8 @@ def convert_source(
     Media Center (Shopee cf.shopee.ph URLs expire and won't load from
     TikTok).
     """
+    if log:
+        log(f"[convert] 读取源：{source_xlsx}")
     if progress:
         progress(0.02, "正在读取源表格…")
     products = read_source(source_xlsx, column_mapping=column_mapping)
@@ -214,6 +218,16 @@ def convert_source(
     use_suffix = bool(settings.get("title_random_suffix_enabled", False))
     suffix_len = int(settings.get("random_suffix_length", 10) or 10)
     split_files = bool(settings.get("split_output_files", False))
+
+    if log:
+        log(
+            f"[convert] 识别到 {len(products)} 个产品 / "
+            f"{sum(len(p.variants) for p in products)} 个变体"
+        )
+        log(
+            f"[convert] 模式 = {'拆分文件' if split_files else '单文件'}，"
+            f"份数 = {copies}"
+        )
 
     if progress:
         progress(0.25, f"已识别 {len(products)} 个产品（{sum(len(p.variants) for p in products)} 个变体），正在生成行…")
@@ -256,6 +270,8 @@ def convert_source(
             write_tiktok_xlsx(out_path, file_rows, template_src)
             output_paths.append(out_path)
             total_rows += len(file_rows)
+            if log:
+                log(f"[convert] 写入文件：{out_path.name} ({len(file_rows)} 行)")
             if progress:
                 progress(0.6 + 0.2 * ((c_idx + 1) / copies),
                          f"已写入 {c_idx + 1}/{copies} 个文件…")
@@ -277,6 +293,8 @@ def convert_source(
         write_tiktok_xlsx(out_path, rows, template_src)
         output_paths.append(out_path)
         total_rows = len(rows)
+        if log:
+            log(f"[convert] 写入文件：{out_path.name} ({len(rows)} 行)")
 
     image_dir = image_manifest = None
     img_count = 0
@@ -285,6 +303,11 @@ def convert_source(
         image_dir, image_manifest, img_count, img_failed = download_images(
             products, output_dir, progress=progress,
         )
+        if log:
+            log(
+                f"[convert] 图片下载：{img_count} 成功"
+                + (f"，{len(img_failed)} 失败" if img_failed else "")
+            )
 
     if progress:
         if len(output_paths) == 1:
