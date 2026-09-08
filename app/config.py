@@ -9,7 +9,7 @@ from typing import Any
 
 
 APP_NAME = "TK菲律宾表格转化工具"
-__version__ = "2.0.0"
+__version__ = "3.1.0"  # v3.1 adds default size chart URL
 
 
 def get_app_dir() -> Path:
@@ -81,8 +81,16 @@ def default_config() -> dict[str, Any]:
                 "Shipping: orders ship within 1-2 business days; delivery typically takes 3-8 days."
             ),
             # Size chart URL
+            # Default: a generic clothing size chart PNG hosted on the project's
+            # GitHub raw CDN. TikTok batch upload validator flags empty
+            # size_chart cells as errors when the product has size variations,
+            # so we ship a sensible default out of the box. Users can override
+            # it in the GUI with their own size chart image URL/ID.
             "size_chart_enabled": True,
-            "size_chart_value": "",
+            "size_chart_value": (
+                "https://raw.githubusercontent.com/yuqingyangxt1-wq/"
+                "tk-ph-converter/main/assets/default_size_chart.png"
+            ),
             # Parcel
             "parcel_enabled": True,
             "parcel_weight_value": 200,   # grams

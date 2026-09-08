@@ -430,7 +430,17 @@ class App(tk.Tk):
         add_check("description_enabled", "启用描述覆盖")
         add_str("description_value", "产品描述：", width=60, multi=True)
         add_check("size_chart_enabled", "启用尺码图 URL 覆盖")
-        add_str("size_chart_value", "尺码图 URL：")
+        add_str("size_chart_value", "尺码图 URL / ID：")
+        # Hint row: explain what TikTok accepts as the size_chart value.
+        hint = ttk.Frame(inner); hint.pack(fill="x", padx=12, pady=(0, 4))
+        ttk.Label(
+            hint,
+            text=("提示：留空会用工具内置的通用服装尺码图（已托管在 GitHub）。\n"
+                  "如要用自有尺码图，请先上传到 TikTok Media Center，然后把它的 URL 或 ID 粘贴到上面。"),
+            foreground="#666", wraplength=720, justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        ttk.Button(hint, text="使用默认", width=10,
+                   command=self._reset_default_size_chart).pack(side="right", padx=(8, 0))
 
         # 包裹
         add_section("包裹尺寸 (cm / g)")
@@ -479,6 +489,23 @@ class App(tk.Tk):
         self.cfg["source_column_mapping"] = cm
         save_config(self.cfg)
         messagebox.showinfo("已保存", "设置已写入 config.json。")
+
+    def _reset_default_size_chart(self):
+        """Reset the size_chart_value to the bundled default URL."""
+        from .config import default_config
+        default_url = default_config()["product_xlsx_settings"]["size_chart_value"]
+        widget = self.set_vars.get("size_chart_value")
+        if widget is None:
+            return
+        try:
+            widget.set(default_url)
+            self.set_checks["size_chart_enabled"].set(True)
+        except AttributeError:
+            pass
+        messagebox.showinfo(
+            "已恢复默认",
+            "尺码图 URL 已恢复为内置默认值。\n如需替换成自己的尺码图，请先上传到 TikTok Media Center 后把 URL/ID 粘贴进来。",
+        )
 
     # ----- Pool listing ----------------------------------------------------
 
