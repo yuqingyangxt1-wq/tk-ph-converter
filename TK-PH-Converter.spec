@@ -3,8 +3,6 @@
 
 Build:
     pyinstaller --noconfirm TK-PH-Converter.spec
-or use build_windows.bat which wraps this and copies the assets/ folder
-next to the produced exe.
 """
 
 from pathlib import Path
@@ -14,18 +12,31 @@ block_cipher = None
 APP_NAME = "TK-PH-Converter"
 PROJECT_DIR = Path(SPECPATH).resolve()  # set by PyInstaller
 
-# Entry point: the GUI main() in app/main.py
+# Make `app` importable as a package so relative imports inside
+# app/main.py keep working in the frozen exe.
+sys.path.insert(0, str(PROJECT_DIR))
+
+# Entry: invoke the package's __main__ via -m flag.
+# PyInstaller supports the standard '-c' argv form for this.
 a = Analysis(
-    [str(PROJECT_DIR / "app" / "main.py")],
+    [str(PROJECT_DIR / "app" / "__main__.py")],
     pathex=[str(PROJECT_DIR)],
     binaries=[],
-    datas=[],  # assets/ is copied next to the exe by build_windows.bat
-    hiddenimports=[],
+    datas=[],
+    hiddenimports=[
+        # Force-include every module in the app package so relative imports
+        # in the frozen exe always resolve.
+        "app",
+        "app.config",
+        "app.source_reader",
+        "app.converter",
+        "app.product_pool",
+        "app.tiktok_writer",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Trim unused heavy modules to keep the exe lean
         "matplotlib", "scipy", "pandas", "numpy.testing",
         "pytest", "setuptools",
     ],
@@ -50,11 +61,11 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,           # GUI app: no console window
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,               # add an .ico path here if you have one
+    icon=None,
 )
