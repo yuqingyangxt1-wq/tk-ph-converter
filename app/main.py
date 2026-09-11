@@ -361,6 +361,26 @@ class ConvertSettingsPanel(tk.Frame):
             cursor="hand2",
         )
         self._run_btn.pack(side="left")
+        # v3.2.4: 下载图片开关，默认勾上（8 线程并发）；想秒出表就取消
+        self._download_imgs_var = tk.BooleanVar(
+            value=bool(self._settings.get("download_images_enabled", True))
+        )
+        tk.Checkbutton(
+            btn_row,
+            text="下载产品图片（8 线程并发；不勾直接出表更快）",
+            variable=self._download_imgs_var,
+            bg="#ffffff", bd=0, highlightthickness=0,
+            activebackground="#ffffff",
+            command=self._on_download_toggle,
+        ).pack(side="left", padx=(16, 0))
+
+    def _on_download_toggle(self):
+        self._settings["download_images_enabled"] = bool(self._download_imgs_var.get())
+        if hasattr(self, "_on_change") and self._on_change:
+            self._on_change()
+
+    def is_download_images_enabled(self) -> bool:
+        return bool(self._download_imgs_var.get())
 
     # -- state ------------------------------------------------------------
 
@@ -805,7 +825,12 @@ class App(tk.Tk):
         self._auto_save_settings()
         settings = get_settings(self.cfg)
         mapping = self.cfg.get("source_column_mapping") or {}
-        self.append_log(f"[convert] 源={src}\n[convert] 输出={out}")
+        # v3.2.4: 转化页可勾选跳过图片下载（默认勾上 = 下载）
+        download_imgs = bool(
+            self._convert_panel.is_download_images_enabled()
+            if hasattr(self, "_convert_panel") else True
+        )
+        self.append_log(f"[convert] 源={src}\n[convert] 输出={out}\n[convert] 下载图片={'是' if download_imgs else '否'}")
         self.worker.submit(
             convert_source,
             source_xlsx=Path(src),
@@ -813,6 +838,7 @@ class App(tk.Tk):
             settings=settings,
             template_src=tpl,
             column_mapping=mapping,
+            download_imgs=download_imgs,
             on_done=self._on_convert_done,
         )
 

@@ -45,6 +45,8 @@ def default_config() -> dict[str, Any]:
         "product_xlsx_last_output_dir": "",
         "product_pool_dir": "",
         "product_xlsx_settings": {
+            # v3.2.4: 让用户能跳过图片下载（默认勾上 = 下载；GUI 转化页有开关）
+            "download_images_enabled": True,
             # Title
             "title_prefix_enabled": True,
             "title_prefix": "COD Unisex T-shirt【S-3XL】 ",

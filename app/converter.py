@@ -16,6 +16,7 @@ import string
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -113,20 +114,36 @@ def _safe_path_for(url: str, idx: int) -> str:
     return f"{stem}_{h}.{ext}"
 
 
+def _fetch_one(url: str, fname: str, image_dir: Path, timeout: float) -> tuple[str, bool]:
+    """Download a single image. Returns (url, ok)."""
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        })
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read(5_000_000)  # cap at 5MB
+        (image_dir / fname).write_bytes(data)
+        return url, True
+    except Exception:
+        return url, False
+
+
 def download_images(
     products: list[Product],
     output_dir: Path,
     progress: ProgressFn | None = None,
-    timeout: float = 8.0,
+    timeout: float = 5.0,
+    max_workers: int = 8,
 ) -> tuple[Path, Path, int, list[str]]:
-    """Download all unique product images into `<output_dir>/images/`.
+    """Download all unique product images into <output_dir>/images/.
 
     Returns: (image_dir, manifest_path, success_count, failed_urls)
 
-    The manifest is a plain-text list (one URL → local file per line) so the
-    user can pipe it into their TikTok Media Center upload flow.
+    Concurrency: 8 threads by default. SE-Asia CDN responses can hang for
+    several seconds each, so serial downloads make a 60-image batch take
+    minutes — parallel cuts it to a few seconds.
     """
-    # Collect all unique image URLs
     urls: list[str] = []
     seen: set[str] = set()
     for p in products:
@@ -140,35 +157,54 @@ def download_images(
     failed: list[str] = []
     success = 0
 
+    if not urls:
+        manifest = output_dir / "_image_manifest.txt"
+        manifest.write_text(
+            "# TikTok PH Converter - image manifest\n(no images to download)\n",
+            encoding="utf-8",
+        )
+        if progress:
+            progress(0.8, "源表中没有图片链接，跳过下载。")
+        return image_dir, manifest, 0, []
+
     if progress:
-        progress(0.7, f"正在下载 {len(urls)} 张图片（最多 {int(timeout)}s/张）…")
+        progress(0.7, f"正在并发下载 {len(urls)} 张图片（{max_workers} 线程，{int(timeout)}s 超时）…")
 
+    plan: list[tuple[str, str]] = []
     for idx, url in enumerate(urls, 1):
-        fname = _safe_path_for(url, idx)
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            })
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = resp.read(5_000_000)  # cap at 5MB
-            (image_dir / fname).write_bytes(data)
-            success += 1
-        except Exception:
-            failed.append(url)
-        if progress and urls:
-            progress(0.7 + 0.1 * (idx / len(urls)), f"已处理 {idx}/{len(urls)} 张图片…")
+        plan.append((url, _safe_path_for(url, idx)))
 
+    failed_set: set[str] = set()
+    done = 0
+    workers = max(1, min(max_workers, len(plan)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_fetch_one, url, fname, image_dir, timeout): (url, fname)
+            for url, fname in plan
+        }
+        for fut in as_completed(futures):
+            url, ok = fut.result()
+            done += 1
+            if ok:
+                success += 1
+            else:
+                failed_set.add(url)
+            if progress and urls:
+                progress(
+                    0.7 + 0.1 * (done / len(urls)),
+                    f"已处理 {done}/{len(urls)} 张图片…",
+                )
+
+    failed = list(failed_set)
     manifest = output_dir / "_image_manifest.txt"
     lines = ["# TikTok PH Converter - image manifest",
             "# Format: <remote_url>  ->  <local_file>",
             "# After uploading these to TikTok Media Center, replace each",
             "# remote URL in the output xlsx with the TikTok-hosted URL.",
             ""]
-    for idx, url in enumerate(urls, 1):
-        local = _safe_path_for(url, idx)
-        ok = "OK " if url not in failed else "ERR"
-        lines.append(f"[{ok}] {url}  ->  images/{local}")
+    for url, fname in plan:
+        ok = "OK " if url not in failed_set else "ERR"
+        lines.append(f"[{ok}] {url}  ->  images/{fname}")
     manifest.write_text("\n".join(lines), encoding="utf-8")
 
     if progress:
